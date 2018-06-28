@@ -9,7 +9,7 @@ var afs;
 function cleanupStorage()
 {
    localStorage.clear();
-   if (BrowserFS.FileSystem.IndexedDB.isAvailable())
+   if (BrowserFS.FileSystem.IndexedDB.isAvailable() && false)
    {
       var req = indexedDB.deleteDatabase("RetroArch");
       req.onsuccess = function () {
@@ -30,8 +30,8 @@ function idbfsInit()
 {
    $('#icnLocal').removeClass('fa-globe');
    $('#icnLocal').addClass('fa-spinner fa-spin');
-   var imfs = new BrowserFS.FileSystem.InMemory();
-   if (BrowserFS.FileSystem.IndexedDB.isAvailable())
+   // var imfs = new BrowserFS.FileSystem.InMemory();
+   if (BrowserFS.FileSystem.IndexedDB.isAvailable() && false)
    {
       afs = new BrowserFS.FileSystem.AsyncMirror(imfs,
          new BrowserFS.FileSystem.IndexedDB(function(e, fs)
@@ -68,6 +68,12 @@ function idbfsInit()
          }
       },
       "RetroArch"));
+   } else {
+     afs = new BrowserFS.FileSystem.InMemory();
+     setupFileSystem("browser")
+       .then(() => {
+         preLoadingComplete();
+       });
    }
 }
 
@@ -101,30 +107,69 @@ function preLoadingComplete()
 function setupFileSystem(backend)
 {
   return Promise.all([
-    fetch("/assets/frontend/bundle/.index-xhr").then(res => res.json()),
-    fetch("/assets/cores/.index-xhr").then(res => res.json()),
+    fetch('/assets/frontend/bundle/.index-xhr').then(res => res.json()),
+    fetch('/assets/cores/.index-xhr').then(res => res.json()),
+    fetch('/assets/frontend/bundle/retroarch.cfg').then(res => res.arrayBuffer()),
+    // fetch('/assets/cores/sonic3.md').then(res => res.arrayBuffer()),
+    // fetch('/assets/cores/oot.z64').then(res => res.arrayBuffer()),
+    fetch('/assets/cores/majora.z64').then(res => res.arrayBuffer()),
+    // fetch('/assets/cores/starfox.z64').then(res => res.arrayBuffer()),
   ])
-    .then(indexXhrs => {
+    .then(xhrs => {
      /* create a mountable filesystem that will server as a root
         mountpoint for browserfs */
      var mfs =  new BrowserFS.FileSystem.MountableFileSystem();
 
      /* create an XmlHttpRequest filesystem for the bundled data */
      var xfs1 =  new BrowserFS.FileSystem.XmlHttpRequest
-        (indexXhrs[0], "/assets/frontend/bundle/");
+        (xhrs[0], "/assets/frontend/bundle/");
      /* create an XmlHttpRequest filesystem for core assets */
-     var xfs2 =  new BrowserFS.FileSystem.XmlHttpRequest
-        (indexXhrs[1], "/assets/cores/");
-
+     /* var xfs2 =  new BrowserFS.FileSystem.XmlHttpRequest
+        (xhrs[1], "/assets/cores/"); */
+     /* const xfs2 = new BrowserFS.FileSystem.InMemory();
+     (() => {
+       // const f = m.createFileSync('/sonic3.md', 'r+', 0777);
+       // const f = m.createFileSync('/oot.z64', 'r+', 0777);
+       const f = xfs2.createFileSync('/majora.z64', 'r+', 0777);
+       // const f = m.createFileSync('/starfox.z64', 'r+', 0777);
+       f._buffer = f._buffer.constructor.from(xhrs[3]);
+       f.getStats().size = f._buffer.byteLength;
+       f._dirty = true;
+       f.syncSync();
+       // m.readFileSync('/lol/zol', 'utf8', {isReadable() {return true;}, pathExistsAction() { return 0; }});
+     })(); */
      console.log("WEBPLAYER: initializing filesystem: " + backend);
      mfs.mount('/home/web_user/retroarch/userdata', afs);
 
      mfs.mount('/home/web_user/retroarch/bundle', xfs1);
-     mfs.mount('/home/web_user/retroarch/userdata/content/downloads', xfs2);
+     // mfs.mount('/home/web_user/retroarch/userdata/content/downloads', xfs2);
+     // mfs.mount('/home/web_user/retroarch/userdata/content/downloads', xfs3);
      BrowserFS.initialize(mfs);
      var BFS = new BrowserFS.EmscriptenFS();
      FS.mount(BFS, {root: '/home'}, '/home');
      console.log("WEBPLAYER: " + backend + " filesystem initialization successful");
+
+     (() => {
+       const name = 'retroarch.cfg';
+       const dataView = new Uint8Array(xhrs[2]);
+       FS.createDataFile('/', name, dataView, true, false);
+
+       const data = FS.readFile(name,{ encoding: 'binary' });
+       FS.writeFile('/home/web_user/retroarch/userdata/' + name, data ,{ encoding: 'binary' });
+       FS.unlink(name);
+     })();
+     (() => {
+       const name = 'majora.z64';
+       const dataView = new Uint8Array(xhrs[3]);
+       FS.createDataFile('/', name, dataView, true, false);
+
+       const data = FS.readFile(name,{ encoding: 'binary' });
+       FS.mkdir('/home/web_user/retroarch/userdata/states');
+       FS.mkdir('/home/web_user/retroarch/userdata/content');
+       FS.mkdir('/home/web_user/retroarch/userdata/content/downloads');
+       FS.writeFile('/home/web_user/retroarch/userdata/content/downloads/' + name, data ,{ encoding: 'binary' });
+       FS.unlink(name);
+     })();
   });
 }
 
@@ -217,7 +262,13 @@ window.addEventListener('drop', e => {
 var Module =
 {
   // noInitialRun: true,
-  arguments: ["-v", "--menu"],
+  arguments: [
+    '-v',
+    // '/home/web_user/retroarch/userdata/content/downloads/sonic3.md',
+    // '/home/web_user/retroarch/userdata/content/downloads/oot.z64',
+    '/home/web_user/retroarch/userdata/content/downloads/majora.z64',
+    // '/home/web_user/retroarch/userdata/content/downloads/starfox.z64',
+  ],
   preRun: [],
   postRun: [],
   print: function(text)
@@ -307,7 +358,8 @@ $(function() {
    // Find which core to load.
    var core = localStorage.getItem("core", core);
    if (!core) {
-      core = 'gambatte';
+     // core = 'genesis_plus_gx';
+     core = 'parallel_n64';
    }
    // Make the core the selected core in the UI.
    var coreTitle = $('#core-selector a[data-core="' + core + '"]').addClass('active').text();
